@@ -275,10 +275,10 @@ def main():
                                       discriminator_optimizer,
                                       train_loader,
                                       metric)
-        save_image(torch.Tensor(random.sample(real_data.tolist(), 9)),
+        save_image(torch.Tensor(random.sample(real_data.tolist(), 4)),
                    'real_fbank/{}.png'.format(epoch),
                     nrow = 2, normalize = True)                                      
-        save_image(torch.Tensor(random.sample(fake_fbank.tolist(), 9)), 
+        save_image(torch.Tensor(random.sample(fake_fbank.tolist(), 4)), 
                    'fake_fbank/{}.png'.format(epoch), 
                    nrow = 2, normalize = True)
         test(encoder, test_loader) # 测试
