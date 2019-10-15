@@ -1,0 +1,37 @@
+data:
+  sample_rate: 16000
+  vad: false
+  feature: 'fbank'
+  feature_len: 128
+  win_len: 0.02
+  win_step: 0.01
+  n_frames: 128
+  data_path: '/root/datasets/all_labelled_voice'
+  manifest: '/root/code/manifest/manifest_voice_all_labeled.csv'
+  enroll: '/root/datasets/all_labelled_voice/voice_all_labeled/model_data'
+  verify: '/root/datasets/all_labelled_voice/voice_all_labeled/auth_data'
+  trial_file: '/root/datasets/all_labelled_voice/task/trial_pairs.csv'
+  test_mode: 'concat'
+
+model:
+  embedding_dim: 512
+  margin: 0.1
+  blocks: 4
+  expansion: 32
+
+train:
+  start: None
+  epochs: 100
+  spks_per_batch: 20
+  utts_per_spk: 20
+  optimizer: 'sgd'
+  momentum: 0.9
+  lr: 0.1
+  lr_decay: 0.1
+  weight_decay: 0.00001
+  model_dir: './model/sgd/'
+  final_dir: './final_model/sgd/'
+  resume: true
+  load_optimizer: true
+  seed: 123456
+  prediction: 'pred.csv'
