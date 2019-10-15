@@ -17,8 +17,13 @@ import torch.optim as optim
 from utils import RandomNegativeTripletSelector
 from utils import eer as cal_eer
 import yaml
+from logger import Logger
+import time
+from eval_metric import AverageNonzeroTripletsMetric
 
-f = open('config.yaml', 'r')
+logger = Logger('log/{}'.format(time.ctime()).replace(' ', '_'))
+
+f = open('config/config.yaml', 'r')
 config = yaml.load(f)
 f.close()
 model_config = config['model']
@@ -44,6 +49,7 @@ embedding_dim = model_config['embedding_dim']
 margin = model_config['margin']
 blocks = model_config['blocks']
 expansion = model_config['expansion']
+latent_dim = model_config['latent_dim']
 
 device = torch.device('cuda')
 os.makedirs(model_dir, exist_ok = True)
@@ -58,20 +64,17 @@ def train(epoch,
           triplet_criterion, 
           bce_criterion,
           softmax_criterion,
-          encoder_optimizer, 
           generator_optimizer,
           discriminator_optimizer,
-          classifier_optimizer,
-          train_loader): # 训练轮数，模型，loss，优化器，数据集读取
+          train_loader,
+          metric): # 训练轮数，模型，loss，优化器，数据集读取
     encoder.train() # 初始化模型为训练模式
     generator.train()
     discriminator.train()
     classifier.train()
 
-    adjust_learning_rate(encoder_optimizer, epoch) # 调整学习率
     adjust_learning_rate(generator_optimizer, epoch)
     adjust_learning_rate(discriminator_optimizer, epoch)
-    adjust_learning_rate(classifier_optimizer, epoch)
 
     triplet_sum_loss, generator_loss, discriminator_loss, classifier_loss, sum_samples = 0, 0, 0, 0, 0
     progress_bar = tqdm(enumerate(train_loader))
@@ -80,27 +83,27 @@ def train(epoch,
         data = data.to(device)
         label = label.to(device)  # 数据和标签
 
-        # triplet loss train
-        embedding = encoder(data)
-        triplet_loss, _ = triplet_criterion(embedding, label) # loss
-        triplet_loss = triplet_loss * 0.1
-        encoder_optimizer.zero_grad()
-        triplet_loss.backward() # bp训练
-        encoder_optimizer.step()
-
-        triplet_sum_loss += triplet_loss.item() * len(data)
-
         # Adversarial ground truths
         valid = torch.FloatTensor(utts_per_spk * spks_per_batch, 1).fill_(1.0).to(device)
         fake = torch.FloatTensor(utts_per_spk * spks_per_batch, 1).fill_(0.0).to(device)
 
-        # generator loss train
+        # triplet loss
         generator_optimizer.zero_grad()
-        z = torch.rand(spks_per_batch * utts_per_spk, embedding_dim).to(device) # 生成噪声
-        fake_fbank = generator(embedding.detach(), z) # 生成fake fbank
+        embedding = encoder(data)
+        triplet_loss, non_zero_triplets = triplet_criterion(embedding, label) # loss
+        metric(non_zero_triplets)
+        triplet_sum_loss += triplet_loss.item() * len(data)
+        logger.log_value('non_zero_triplets', metric.value())
+        logger.log_value('triplet_loss', triplet_sum_loss / sum_samples)
+
+        # generator loss
+        z = torch.rand(spks_per_batch * utts_per_spk, latent_dim).to(device) # 生成噪声
+        fake_fbank = generator(embedding, z) # 生成fake fbank
         validity = discriminator(fake_fbank) # 判别器判断
-        g_loss = 0.2 * bce_criterion(validity, valid) # 计算loss
-        g_loss.backward()
+        g_loss = bce_criterion(validity, valid) # 计算loss
+        logger.log_value('g_loss', g_loss)
+        triplet_g_loss = 0.2 * g_loss + 0.1 * triplet_loss
+        triplet_g_loss.backward() # bp训练
         generator_optimizer.step()
 
         generator_loss += g_loss.item() * len(data)
@@ -111,55 +114,49 @@ def train(epoch,
         d_real_loss = bce_criterion(validity_real, valid) # Loss for real images
         validity_fake = discriminator(fake_fbank.detach()) 
         d_fake_loss = bce_criterion(validity_fake, fake) # Loss for fake images
-        d_loss = 0.5 * (d_real_loss + d_fake_loss) / 2 # Total discriminator loss
-        d_loss.backward()
-        discriminator_optimizer.step()
-
+        d_loss = (d_real_loss + d_fake_loss) / 2 # Total discriminator loss
+        logger.log_value('d_loss', d_loss)
         discriminator_loss += d_loss.item() * len(data)
         
         # softmax loss train
-        classifier_optimizer.zero_grad()
         input = torch.cat((data, fake_fbank.detach()), 0)
         label = torch.cat((label, label), -1)
         output = classifier(input)
-        softmax_loss = 0.2 * softmax_criterion(output, label)
-        softmax_loss.backward()
-        classifier_optimizer.step()
-
+        softmax_loss = softmax_criterion(output, label)
+        logger.log_value('soft_loss', softmax_loss)
         classifier_loss += softmax_loss.item() * len(data)
 
-        batches_done = (epoch - 1) * len(train_loader) + batch_idx
-        if batches_done % 40000 == 0:
-            save_image(fake_fbank.detach().data[:9], "fake_fbank/{:d}.png".format(batches_done), nrow = 3, normalize = True)
+        discriminator_classifier_loss = 0.2 * softmax_loss + 0.5 * d_loss
+        discriminator_classifier_loss.backward()
+        discriminator_optimizer.step()
+
+        logger.step()
 
         progress_bar.set_description(
-            'Train Epoch: {:3d} [{:4d}/{:4d} ({:3.3f}%)] TriLoss: {:.4f} GenLoss: {:.4f} DisLoss: {:.4f} ClaLoss: {:.4f}'.format(
+            'Train Epoch: {:3d} [{:4d}/{:4d} ({:3.3f}%)] TriLoss: {:.4f} Nonzero: {:.4f} GenLoss: {:.4f} DisLoss: {:.4f} ClaLoss: {:.4f}'.format(
                 epoch, batch_idx + 1, len(train_loader),
                 100. * (batch_idx + 1) / len(train_loader),
                 triplet_sum_loss / sum_samples,
+                metric.value(),
                 generator_loss / sum_samples,
                 discriminator_loss / sum_samples,
                 classifier_loss / sum_samples))
-
 
     torch.save({'epoch': epoch, 'encoder_state_dict': encoder.state_dict(),
                 'generator_state_dict': generator.state_dict(),
                 'discriminator_state_dict': discriminator.state_dict(),
                 'classifier_state_dict': classifier.state_dict(),
-                'encoder_optimizer': encoder_optimizer.state_dict(),
                 'generator_optimizer': generator_optimizer.state_dict(),
-                'discriminator_optimizer': discriminator_optimizer.state_dict(),
-                'classifier_optimizer': classifier_optimizer.state_dict()},
+                'discriminator_optimizer': discriminator_optimizer.state_dict()},
                 '{}/net_{}.pth'.format(model_dir, epoch)) # 保存当轮的模型到net_{}.pth
     torch.save({'epoch': epoch, 'encoder_state_dict': encoder.state_dict(),
                 'generator_state_dict': generator.state_dict(),
                 'discriminator_state_dict': discriminator.state_dict(),
                 'classifier_state_dict': classifier.state_dict(),
-                'encoder_optimizer': encoder_optimizer.state_dict(),
                 'generator_optimizer': generator_optimizer.state_dict(),
-                'discriminator_optimizer': discriminator_optimizer.state_dict(),
-                'classifier_optimizer': classifier_optimizer.state_dict()},
+                'discriminator_optimizer': discriminator_optimizer.state_dict()},
                 '{}/net.pth'.format(final_dir)) # 保存当轮的模型到net.pth
+    return fake_fbank.detach()
 
 def test(model, test_loader): # 测试，模型，测试集读取
     model.eval() # 设置为测试模式
@@ -200,25 +197,34 @@ def main():
     print('Num of classes: {}'.format(n_classes))
 
     encoder = Encoder(expansion, blocks, embedding_dim).to(device)
-    generator = Generator(expansion, blocks, embedding_dim, FEATURE_LEN).to(device)
+    generator = Generator(expansion, blocks, embedding_dim, FEATURE_LEN, latent_dim).to(device)
     discriminator = Discriminator(expansion, blocks, embedding_dim).to(device)
-    classifier = Classifier(expansion, blocks, embedding_dim, n_classes).to(device)
+    classifier = Classifier(expansion, blocks, n_classes).to(device)
 
     if optimizer == 'sgd': # 优化器使用sgd
-        encoder_optimizer = optim.SGD(encoder.parameters(), lr = lr, momentum = momentum, weight_decay = weight_decay)
-        generator_optimizer = optim.SGD(generator.parameters(), lr = lr, momentum = momentum, weight_decay = weight_decay)
-        discriminator_optimizer = optim.SGD(discriminator.parameters(), lr = lr, momentum = momentum, weight_decay = weight_decay)
-        classifier_optimizer = optim.SGD(classifier.parameters(), lr = lr, momentum = momentum, weight_decay = weight_decay)
+        generator_optimizer = optim.SGD([{'params': generator.parameters()}, 
+                                         {'params': encoder.parameters()},
+                                         {'params': discriminator.parameters()}],
+                                        lr = lr, momentum = momentum, weight_decay = weight_decay)
+        discriminator_optimizer = optim.SGD([{'params': discriminator.parameters()}, 
+                                             {'params': classifier.parameters()}],
+                                            lr = lr, momentum = momentum, weight_decay = weight_decay)
     elif optimizer == 'adagrad': # 优化器使用adagrad
-        encoder_optimizer = optim.Adagrad(encoder.parameters(), lr = lr, weight_decay = weight_decay)
-        generator_optimizer = optim.Adagrad(generator.parameters(), lr = lr, weight_decay = weight_decay)
-        discriminator_optimizer = optim.Adagrad(discriminator.parameters(), lr = lr, weight_decay = weight_decay)
-        classifier_optimizer = optim.Adagrad(classifier.parameters(), lr = lr, weight_decay = weight_decay)
+        generator_optimizer = optim.Adagrad([{'params': generator.parameters()}, 
+                                             {'params': encoder.parameters()},
+                                             {'params': discriminator.parameters()}], 
+                                            lr = lr, weight_decay = weight_decay)
+        discriminator_optimizer = optim.Adagrad([{'params': discriminator.parameters()}, 
+                                                 {'params': classifier.parameters()}], 
+                                                lr = lr, weight_decay = weight_decay)
     else: # 优化器使用adam
-        encoder_optimizer = optim.Adam(encoder.parameters(), lr = lr, weight_decay = weight_decay)
-        generator_optimizer = optim.Adam(generator.parameters(), lr = lr, weight_decay = weight_decay)
-        discriminator_optimizer = optim.Adam(discriminator.parameters(), lr = lr, weight_decay = weight_decay)
-        classifier_optimizer = optim.Adam(classifier.parameters(), lr = lr, weight_decay = weight_decay)
+        generator_optimizer = optim.Adam([{'params': generator.parameters()}, 
+                                         {'params': encoder.parameters()},
+                                         {'params': discriminator.parameters()}], 
+                                        lr = lr, weight_decay = weight_decay)
+        discriminator_optimizer = optim.Adam([{'params': discriminator.parameters()}, 
+                                              {'params': classifier.parameters()}], 
+                                             lr = lr, weight_decay = weight_decay)
     
     selector = RandomNegativeTripletSelector(margin)
 
@@ -226,25 +232,21 @@ def main():
     bce_criterion = nn.BCELoss().to(device)
     softmax_criterion = nn.CrossEntropyLoss().to(device)
 
+    start = 1
+    metric = AverageNonzeroTripletsMetric()
+
     if resume: # 是否从之前保存的模型开始
         if os.path.isfile(os.path.join(final_dir, "net.pth")):
             print('=> loading checkpoint {}'.format(os.path.join(final_dir, "net.pth")))
             checkpoint = torch.load(os.path.join(final_dir, "net.pth"))
             start = checkpoint['epoch'] + 1
             if load_optimizer:
-                encoder_optimizer.load_state_dict(checkpoint['encoder_optimizer'])
                 generator_optimizer.load_state_dict(checkpoint['generator_optimizer'])
                 discriminator_optimizer.load_state_dict(checkpoint['discriminator_optimizer'])
-                classifier_optimizer.load_state_dict(checkpoint['classifier_optimizer'])
-            encoder.load_state_dict(checkpoint['encoder_state_dict'])
             generator.load_state_dict(checkpoint['generator_state_dict'])
             discriminator.load_state_dict(checkpoint['discriminator_state_dict'])
-            classifier.load_state_dict(checkpoint['classifier_state_dict'])
         else:
             print('=> no checkpoint found at {}'.format(os.path.join(final_dir, "net.pth")))
-
-    if start is None:
-        start = 1
 
     train_loader = DataLoader(train_dataset, 
                               batch_sampler = batch_sampler,
@@ -259,26 +261,28 @@ def main():
                              pin_memory=True)
 
     for epoch in range(start, epochs + 1):
-        train(epoch, 
-              encoder, 
-              generator,
-              discriminator,
-              classifier,
-              triplet_criterion, 
-              bce_criterion,
-              softmax_criterion,
-              encoder_optimizer, 
-              generator_optimizer,
-              discriminator_optimizer,
-              classifier_optimizer,
-              train_loader)
+        fake_fbank = train(epoch, 
+                           encoder, 
+                           generator,
+                           discriminator,
+                           classifier,
+                           triplet_criterion, 
+                           bce_criterion,
+                           softmax_criterion,
+                           generator_optimizer,
+                           discriminator_optimizer,
+                           train_loader,
+                           metric)
+        if epoch % 5:
+            save_image(fake_fbank[:9], 'fake_fbank/{}.png'.format(epoch), nrow = 3, normalize = True)
         test(encoder, test_loader)#测试
         task = pd.read_csv(TRIAL_FILE, header=None, delimiter = '[,]', engine='python')
         pred = pd.read_csv(final_dir + prediction, engine='python')
         y_true = np.array(task.iloc[:, 0])
         y_pred = np.array(pred.iloc[:, -1])
         eer, thresh = cal_eer(y_true, y_pred)
-        print('\nEER      : {:.3%}'.format(eer))
+        logger.log_value('eer', eer, epoch)
+        print('EER      : {:.3%}'.format(eer))
         print('Threshold: {:.5f}'.format(thresh))
 
 def adjust_learning_rate(optimizer, epoch):

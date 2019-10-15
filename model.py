@@ -51,7 +51,7 @@ class Encoder(nn.Module):
         return F.normalize(x)
 
 class Generator(nn.Module):
-    def __init__(self, expansion, blocks, embedding_dim, input_dim, latent_dim = 512):
+    def __init__(self, expansion, blocks, embedding_dim, input_dim, latent_dim = 32):
         super(Generator, self).__init__()
         dim = input_dim // (2 ** blocks) # 8
         channel = expansion * (2 ** (blocks - 1)) # 256
@@ -95,11 +95,10 @@ class Discriminator(nn.Module):
     def __init__(self, expansion, blocks, embedding_dim):
         super(Discriminator, self).__init__()
         self.convnet = self._make_layers(expansion, blocks)
-        self.pool = nn.AdaptiveAvgPool2d([2,2])
-        self.fc1 = nn.Linear(expansion * blocks * 2 * 2 * 2, embedding_dim)
-        self.bn1 = nn.BatchNorm1d(embedding_dim)
+        self.fc1 = nn.Linear(256 * 8 * 8, 1024)
+        self.bn1 = nn.BatchNorm1d(1024)
         self.relu = nn.ReLU()
-        self.fc2 = nn.Linear(embedding_dim, 1)
+        self.fc2 = nn.Linear(1024, 1)
         self.sigmoid = nn.Sigmoid()
 
     def _make_layers(self, expansion, blocks):
@@ -116,7 +115,6 @@ class Discriminator(nn.Module):
 
     def forward(self, x):
         x = self.convnet(x)
-        x = self.pool(x)
         x = torch.flatten(x, start_dim = 1)
         x = self.fc1(x)
         x = self.bn1(x)
@@ -126,14 +124,13 @@ class Discriminator(nn.Module):
         return x
 
 class Classifier(nn.Module):
-    def __init__(self, expansion, blocks, embedding_dim, n_classes):
+    def __init__(self, expansion, blocks, n_classes):
         super(Classifier, self).__init__()
         self.convnet = self._make_layers(expansion, blocks)
-        self.pool = nn.AdaptiveAvgPool2d([2,2])
-        self.fc1 = nn.Linear(expansion * blocks * 2 * 2 * 2, embedding_dim)
-        self.bn1 = nn.BatchNorm1d(embedding_dim)
+        self.fc1 = nn.Linear(256 * 8 * 8, 2 * n_classes)
+        self.bn1 = nn.BatchNorm1d(2 * n_classes)
         self.relu = nn.ReLU()
-        self.fc2 = nn.Linear(embedding_dim, n_classes)
+        self.fc2 = nn.Linear(2 * n_classes, n_classes)
     
     def _make_layers(self, expansion, blocks):
         layers = []
@@ -149,7 +146,6 @@ class Classifier(nn.Module):
 
     def forward(self, x):
         x = self.convnet(x)
-        x = self.pool(x)
         x = torch.flatten(x, start_dim = 1)
         x = self.fc1(x)
         x = self.bn1(x)

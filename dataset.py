@@ -17,7 +17,7 @@ from torch.utils.data import BatchSampler
 import yaml
 import pandas as pd
 
-f = open('config.yaml', 'r')
+f = open('config/config.yaml', 'r')
 config = yaml.load(f)['data']
 f.close()
 
