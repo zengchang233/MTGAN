@@ -21,10 +21,9 @@ model:
   latent_dim: 32
 
 train:
-  start: None
-  epochs: 100
-  spks_per_batch: 20
-  utts_per_spk: 20
+  epochs: 500
+  spks_per_batch: 60
+  utts_per_spk: 10
   optimizer: 'sgd'
   momentum: 0.9
   lr: 0.01

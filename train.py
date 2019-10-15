@@ -20,6 +20,8 @@ import yaml
 from logger import Logger
 import time
 from eval_metric import AverageNonzeroTripletsMetric
+from torch.optim import lr_scheduler
+import random
 
 logger = Logger('log/{}'.format(time.ctime()).replace(' ', '_'))
 
@@ -43,7 +45,8 @@ seed = train_config['seed']
 prediction = train_config['prediction']
 spks_per_batch = train_config['spks_per_batch']
 utts_per_spk = train_config['utts_per_spk']
-start = train_config['start']
+
+random.seed(seed)
 
 embedding_dim = model_config['embedding_dim']
 margin = model_config['margin']
@@ -72,9 +75,6 @@ def train(epoch,
     generator.train()
     discriminator.train()
     classifier.train()
-
-    adjust_learning_rate(generator_optimizer, epoch)
-    adjust_learning_rate(discriminator_optimizer, epoch)
 
     triplet_sum_loss, generator_loss, discriminator_loss, classifier_loss, sum_samples = 0, 0, 0, 0, 0
     progress_bar = tqdm(enumerate(train_loader))
@@ -156,7 +156,7 @@ def train(epoch,
                 'generator_optimizer': generator_optimizer.state_dict(),
                 'discriminator_optimizer': discriminator_optimizer.state_dict()},
                 '{}/net.pth'.format(final_dir)) # 保存当轮的模型到net.pth
-    return fake_fbank.detach()
+    return data.detach(), fake_fbank.detach()
 
 def test(model, test_loader): # 测试，模型，测试集读取
     model.eval() # 设置为测试模式
@@ -226,6 +226,8 @@ def main():
                                               {'params': classifier.parameters()}], 
                                              lr = lr, weight_decay = weight_decay)
     
+    gen_scheduler = lr_scheduler.StepLR(generator_optimizer, 200, gamma = 0.1, last_epoch = -1)
+    dis_scheduler = lr_scheduler.StepLR(discriminator_optimizer, 200, gamma = 0.1, last_epoch = -1)
     selector = RandomNegativeTripletSelector(margin)
 
     triplet_criterion = OnlineTripletLoss(margin, selector).to(device)
@@ -261,21 +263,27 @@ def main():
                              pin_memory=True)
 
     for epoch in range(start, epochs + 1):
-        fake_fbank = train(epoch, 
-                           encoder, 
-                           generator,
-                           discriminator,
-                           classifier,
-                           triplet_criterion, 
-                           bce_criterion,
-                           softmax_criterion,
-                           generator_optimizer,
-                           discriminator_optimizer,
-                           train_loader,
-                           metric)
-        if epoch % 5:
-            save_image(fake_fbank[:9], 'fake_fbank/{}.png'.format(epoch), nrow = 3, normalize = True)
-        test(encoder, test_loader)#测试
+        real_data, fake_fbank = train(epoch, 
+                                      encoder, 
+                                      generator,
+                                      discriminator,
+                                      classifier,
+                                      triplet_criterion, 
+                                      bce_criterion,
+                                      softmax_criterion,
+                                      generator_optimizer,
+                                      discriminator_optimizer,
+                                      train_loader,
+                                      metric)
+        save_image(torch.Tensor(random.sample(real_data.tolist(), 9)),
+                   'real_fbank/{}.png'.format(epoch),
+                    nrow = 2, normalize = True)                                      
+        save_image(torch.Tensor(random.sample(fake_fbank.tolist(), 9)), 
+                   'fake_fbank/{}.png'.format(epoch), 
+                   nrow = 2, normalize = True)
+        test(encoder, test_loader) # 测试
+        gen_scheduler.step()
+        dis_scheduler.step()
         task = pd.read_csv(TRIAL_FILE, header=None, delimiter = '[,]', engine='python')
         pred = pd.read_csv(final_dir + prediction, engine='python')
         y_true = np.array(task.iloc[:, 0])
@@ -284,15 +292,5 @@ def main():
         logger.log_value('eer', eer, epoch)
         print('EER      : {:.3%}'.format(eer))
         print('Threshold: {:.5f}'.format(thresh))
-
-def adjust_learning_rate(optimizer, epoch):
-    if epoch <= 15:
-        adjusted_lr = lr
-    elif epoch <= 30:
-        adjusted_lr = lr * 0.1
-    else:
-        adjusted_lr = lr * 0.01
-    for param_group in optimizer.param_groups:
-        param_group['lr'] = adjusted_lr
        
 main()
