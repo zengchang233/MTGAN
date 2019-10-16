@@ -59,21 +59,27 @@ class Generator(nn.Module):
         self.channel = channel
         self.fc = nn.Linear(embedding_dim + latent_dim, self.channel * self.dim ** 2)
         self.bn = nn.BatchNorm1d(self.channel * self.dim ** 2)
-        self.upsample = self._make_layers(channel, blocks)
-        self.up = nn.Upsample(scale_factor = 2)
-        self.conv = nn.Conv2d(expansion, 1, kernel_size = 3, stride = 1, padding = 1)
+        # self.convTranspose = self._make_layers(channel, blocks)
+        self.convTranspose = nn.Sequential(nn.ConvTranspose2d(256,128,kernel_size = 5, stride = 3, padding = 5),
+                                           nn.BatchNorm2d(128),
+                                           nn.LeakyReLU(0.2),
+                                           nn.ConvTranspose2d(128,64,kernel_size = 5, stride = 3, padding = 9),
+                                           nn.BatchNorm2d(64),
+                                           nn.LeakyReLU(0.2),
+                                           nn.ConvTranspose2d(64,32,kernel_size = 5, stride = 3, padding = 17),
+                                           nn.BatchNorm2d(32),
+                                           nn.LeakyReLU(0.2),
+                                           nn.ConvTranspose2d(32,1,kernel_size = 5, stride = 3, padding = 33),
+                                          )
         self.tanh = nn.Tanh()
 
     def _make_layers(self, channel, blocks):
         layers = []
         for i in range(blocks):
-            if i == 0:
-                layers.append(nn.Conv2d(channel, channel, kernel_size = 3, stride = 1, padding = 1))
-                layers.append(nn.BatchNorm2d(channel))
-                layers.append(nn.LeakyReLU(0.2))
+            if i == blocks - 1:
+                layers.append(nn.ConvTranspose2d(channel * 2, 1, kernel_size = 5, stride = 3, padding = (1 + 4 * (i + 1))))
             else:
-                layers.append(nn.Upsample(scale_factor = 2))
-                layers.append(nn.Conv2d(channel, channel // 2, kernel_size = 3, stride = 1, padding = 1))
+                layers.append(nn.ConvTranspose2d(channel, channel // 2, kernel_size = 5, stride = 3, padding = (1 + 4 * (i + 1))))
                 layers.append(nn.BatchNorm2d(channel // 2))
                 layers.append(nn.LeakyReLU(0.2))
                 channel = channel // 2
@@ -81,13 +87,12 @@ class Generator(nn.Module):
 
     def forward(self, embedding, x):
         x = torch.cat((embedding, x), -1)
+        print(x.size())
         x = self.fc(x)
         x = self.bn(x)
         x = F.relu(x)
         x = x.view(-1, self.channel, self.dim, self.dim)
-        x = self.upsample(x)
-        x = self.up(x)
-        x = self.conv(x)
+        x = self.convTranspose(x)
         x = self.tanh(x)
         return x
 
