@@ -54,7 +54,7 @@ blocks = model_config['blocks']
 expansion = model_config['expansion']
 latent_dim = model_config['latent_dim']
 
-device = torch.device('cuda')
+device = torch.device('cuda:1')
 os.makedirs(model_dir, exist_ok = True)
 os.makedirs(final_dir, exist_ok = True)
 os.makedirs('fake_fbank', exist_ok = True)

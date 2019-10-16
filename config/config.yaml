@@ -22,11 +22,11 @@ model:
 
 train:
   epochs: 500
-  spks_per_batch: 60
-  utts_per_spk: 10
+  spks_per_batch: 20
+  utts_per_spk: 20
   optimizer: 'sgd'
   momentum: 0.9
-  lr: 0.01
+  lr: 0.001
   lr_decay: 0.1
   weight_decay: 0.00001
   model_dir: './model/sgd/'

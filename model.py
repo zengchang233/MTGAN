@@ -87,7 +87,6 @@ class Generator(nn.Module):
 
     def forward(self, embedding, x):
         x = torch.cat((embedding, x), -1)
-        print(x.size())
         x = self.fc(x)
         x = self.bn(x)
         x = F.relu(x)
