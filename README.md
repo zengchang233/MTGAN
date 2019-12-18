@@ -13,47 +13,45 @@ In this repository, I used cosine similarity-based Tripelt loss instead of the E
 
 ## Dataset
 
-Private dataset. Anybody using this code can download Voxceleb dataset as substitution.
+~Private dataset. Anybody using this code can download Voxceleb dataset as substitution.~
+
+I substituted the private dataset with **Voxceleb1 Dev** dataset to train both original triplet model and MTGAN model. The models is evaluated on **Voxceleb1 Test** dataset.
 
 ## Original Triplet Loss
 
 In original_triplet directory, I implemented a simple triplet loss which uses a randomly hard sampling strategy. It is treated as a contrastive experiment to MTGAN so the encoder of it is same with MTGAN.
 
-After 45 epochs, the model is converged. Changing trend of loss function is shown as the following picture.
+After 500 epochs, the model is converged. Changing trend of loss function is shown as the following picture.
 
 Triplet loss
 
-![triplet loss](https://github.com/zengchang94622/MTGAN/blob/master/imgs/triplet_loss.png)
+![triplet loss](https://github.com/zengchang94622/MTGAN/blob/master/imgs/triplet_loss.svg)
 
 Number of non zero triplets
 
-![non zero triplets](https://github.com/zengchang94622/MTGAN/blob/master/imgs/non_zero_triplets.png)
+![non zero triplets](https://github.com/zengchang94622/MTGAN/blob/master/imgs/non_zero_triplets.svg)
 
 EER
 
-![eer](https://github.com/zengchang94622/MTGAN/blob/master/imgs/eer.png)
+![eer](https://github.com/zengchang94622/MTGAN/blob/master/imgs/eer.svg)
 
-EER: 7.643%
+EER: 9.020%
 
 ## I-Vector System
 
 I used KALDI sre16 scripts to build an I-Vector system.
 
-EER: 3.422%
+EER: 5.509%
 
 ## ResNet18 + LMCL
 
 Another neural network-based system was built with augmenting data by using MUSAN.
 
-EER: 2.23%
+EER: 4.50%
 
 ## MTGAN Performance
 
-I have developed a preliminary version yet without adjust hyper-parameters carefully, so the performance of this system is not well as original triplet loss.
-
-EPOCH:     38
-
-EER:       11.701%
+Continuing...
 
 ## Contact
 
