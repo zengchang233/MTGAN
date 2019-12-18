@@ -33,7 +33,7 @@ Number of non zero triplets
 
 EER
 
-![eer](https://github.com/zengchang94622/MTGAN/blob/master/imgs/eer.svg)
+
 
 EER: 9.020%
 
