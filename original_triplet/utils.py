@@ -2,9 +2,10 @@ from itertools import combinations
 import numpy as np
 import torch
 import torch.nn.functional as F
-from scipy.optimize import brentq
 from sklearn.metrics import roc_curve
 from scipy.interpolate import interp1d
+from scipy.optimize import brentq
+
 
 def eer(y_true, y_pred):
     fpr, tpr, thres = roc_curve(y_true, y_pred, pos_label = 1)
@@ -112,6 +113,8 @@ class FunctionNegativeTripletSelector(TripletSelector):
                     triplets.append([anchor_positive[0], anchor_positive[1], hard_negative])
 
         if len(triplets) == 0:
+            print(len(anchor_positive))
+            print(len(negative_indices))
             triplets.append([anchor_positive[0], anchor_positive[1], negative_indices[0]])
 
         triplets = np.array(triplets)

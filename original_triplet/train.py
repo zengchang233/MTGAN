@@ -9,7 +9,7 @@ import torch.nn.functional as F
 import numpy as np
 from dataset import VAD, TRIAL_FILE, FEATURE_LEN
 from dataset import SpeakerTrainDataset, SpeakerTestDataset, BalancedBatchSampler
-from model import Encoder, OnlineTripletLoss
+from naive_model import Encoder, OnlineTripletLoss
 from torch.utils.data import DataLoader
 import pandas as pd
 import torch.nn as nn
@@ -23,7 +23,7 @@ from eval_metric import AverageNonzeroTripletsMetric
 
 logger = Logger('log/{}'.format(time.ctime()).replace(' ', '_'))
 
-f = open('config.yaml', 'r')
+f = open('./config/config.yaml', 'r')
 config = yaml.load(f)
 f.close()
 model_config = config['model']
@@ -43,7 +43,7 @@ seed = train_config['seed']
 prediction = train_config['prediction']
 spks_per_batch = train_config['spks_per_batch']
 utts_per_spk = train_config['utts_per_spk']
-start = train_config['start']
+# start = train_config['start']
 
 embedding_dim = model_config['embedding_dim']
 margin = model_config['margin']
@@ -53,7 +53,7 @@ expansion = model_config['expansion']
 device = torch.device('cuda:1')
 os.makedirs(model_dir, exist_ok = True)
 os.makedirs(final_dir, exist_ok = True)
-os.makedirs('fake_fbank', exist_ok = True)
+# os.makedirs('fake_fbank', exist_ok = True)
 
 def train(epoch, 
           encoder,
@@ -141,17 +141,18 @@ def main():
     print('Num of classes: {}'.format(n_classes))
 
     encoder = Encoder(expansion, blocks, embedding_dim).to(device)
+    # encoder = Encoder().to(device)
 
     if optimizer == 'sgd': # 优化器使用sgd
-        encoder_optimizer = optim.SGD(encoder.parameters(), lr = lr, momentum = momentum, weight_decay = weight_decay)
+        encoder_optimizer = optim.SGD(encoder.parameters(), lr = lr, momentum = momentum, dampening = 0, weight_decay = weight_decay)
     elif optimizer == 'adagrad': # 优化器使用adagrad
-        encoder_optimizer = optim.Adagrad(encoder.parameters(), lr = lr, weight_decay = weight_decay)
+        encoder_optimizer = optim.Adagrad(encoder.parameters(), lr = lr, lr_decay = lr_decay,  weight_decay = weight_decay)
     else: # 优化器使用adam
         encoder_optimizer = optim.Adam(encoder.parameters(), lr = lr, weight_decay = weight_decay)
     
     selector = RandomNegativeTripletSelector(margin)
 
-    triplet_criterion = OnlineTripletLoss(margin, selector).to(device)
+    triplet_criterion = OnlineTripletLoss(margin, selector, device)
 
     start = 1
     metric = AverageNonzeroTripletsMetric()
@@ -187,12 +188,12 @@ def main():
                            train_loader,
                            metric)
         test(encoder, test_loader) # 测试
-        task = pd.read_csv(TRIAL_FILE, header=None, delimiter = '[,]', engine='python')
-        pred = pd.read_csv(final_dir + prediction, engine='python')
-        y_true = np.array(task.iloc[:, 0])
-        y_pred = np.array(pred.iloc[:, -1])
+        task = pd.read_csv(TRIAL_FILE, header=None, delimiter = '[ ]', engine='python')
+        pred = pd.read_csv(final_dir + prediction, delimiter = '[,]', engine='python')
+        y_true = task.iloc[:, 0].values
+        y_pred = pred.iloc[:, -1].values
         eer, thresh = cal_eer(y_true, y_pred)
-        print('EER      : {:.3%}'.format(eer))
+        print('\nEER      : {:.3%}'.format(eer))
         print('Threshold: {:.5f}'.format(thresh))
         logger.log_value('eer', eer)
 
