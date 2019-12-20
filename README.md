@@ -47,7 +47,7 @@ EER: 5.509%
 
 Another neural network-based system was built with augmenting data by using MUSAN.
 
-EER: 4.50%
+EER: 4.32%
 
 ## MTGAN Performance
 
