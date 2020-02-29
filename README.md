@@ -9,7 +9,7 @@ In this paper, we propose an enhanced triplet method that improves the encoding 
 
 This is an **unofficial MTGAN implementation**. It only provides a preliminary code for these neural network of this model architecture **without** concretely calculation such as convolutional kernel size and pooling kernel size.
 
-In this repository, I used cosine similarity-based Tripelt loss instead of the Euclidean distance-based Triplet loss used by the authors of this paper.
+In this repository, I used cosine similarity-based Tripelt loss ~~instead of the Euclidean distance-based Triplet loss used by the authors of this paper~~.
 
 ## Dataset
 
